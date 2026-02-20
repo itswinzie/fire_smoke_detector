@@ -1,57 +1,57 @@
 #!/bin/bash
-# ============================================================
-#  Fire & Smoke Detection — Setup & Run Script
-#  Jetson Orin NX | Ollama + gemma3:4b
-# ============================================================
+# =============================================================================
+#  Fire & Smoke Detection System — Setup & Launch
+#  Jetson Orin NX | Ollama gemma3:4b
+# =============================================================================
 
 set -e
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 echo ""
 echo "============================================================"
-echo "  🔥 FIRE & SMOKE DETECTION SYSTEM — SETUP"
+echo "  🔥  FIRE & SMOKE DETECTION SYSTEM"
+echo "       Jetson Orin NX | Ollama gemma3:4b"
 echo "============================================================"
 
-# ── 1. Check Ollama ──────────────────────────────────────────
+# ── 1. Ollama ─────────────────────────────────────────────────────────────────
 echo ""
-echo "[ 1/4 ] Checking Ollama..."
-if ! command -v ollama &> /dev/null; then
-  echo "  ❌ Ollama not found. Installing..."
+echo "[1/3]  Checking Ollama..."
+if ! command -v ollama &>/dev/null; then
+  echo "       Installing Ollama..."
   curl -fsSL https://ollama.com/install.sh | sh
 else
-  echo "  ✅ Ollama found: $(ollama --version)"
+  echo "       ✅  Ollama found: $(ollama --version 2>/dev/null || echo 'installed')"
 fi
 
-# Ensure Ollama is running
-if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-  echo "  ▶  Starting Ollama service..."
-  ollama serve &
-  sleep 3
+# Start Ollama service if not running
+if ! curl -s http://localhost:11434/api/tags &>/dev/null; then
+  echo "       Starting Ollama service..."
+  ollama serve &>/dev/null &
+  sleep 4
 fi
 
-# ── 2. Pull model ─────────────────────────────────────────────
+# ── 2. Pull model ─────────────────────────────────────────────────────────────
 echo ""
-echo "[ 2/4 ] Checking model gemma3:4b..."
-if ollama list | grep -q "gemma3:4b"; then
-  echo "  ✅ gemma3:4b already downloaded"
+echo "[2/3]  Checking model gemma3:4b..."
+if ollama list 2>/dev/null | grep -q "gemma3:4b"; then
+  echo "       ✅  gemma3:4b already downloaded"
 else
-  echo "  ⬇  Downloading gemma3:4b (this may take a while)..."
+  echo "       Downloading gemma3:4b (this may take several minutes)..."
   ollama pull gemma3:4b
+  echo "       ✅  Download complete"
 fi
 
-# ── 3. Python dependencies ────────────────────────────────────
+# ── 3. Python dependencies ────────────────────────────────────────────────────
 echo ""
-echo "[ 3/4 ] Installing Python dependencies..."
-pip install --break-system-packages -q aiohttp opencv-python 2>/dev/null || \
-pip install -q aiohttp opencv-python
-echo "  ✅ Dependencies ready"
+echo "[3/3]  Installing Python dependencies..."
+pip install --break-system-packages -q aiohttp opencv-python 2>/dev/null \
+  || pip install -q aiohttp opencv-python
+echo "       ✅  Dependencies ready"
 
-# ── 4. Create logs directory ──────────────────────────────────
-mkdir -p logs
-
-# ── 5. Run ────────────────────────────────────────────────────
+# ── Launch ────────────────────────────────────────────────────────────────────
 echo ""
-echo "[ 4/4 ] Launching detection system..."
+echo "============================================================"
+echo "  Launching detection system..."
+echo "============================================================"
 echo ""
 python3 detector.py
