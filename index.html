@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Fire & Smoke Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;600;800&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:        #080a0f;
+    --panel:     #0d1117;
+    --border:    #1c2333;
+    --safe:      #00ff88;
+    --danger:    #ff2d2d;
+    --warn:      #ffaa00;
+    --smoke:     #8899bb;
+    --dim:       #3a4560;
+    --text:      #c8d8f0;
+    --mono:      'Share Tech Mono', monospace;
+    --head:      'Barlow Condensed', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Animated scanline */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    position: sticky; top: 0; z-index: 100;
+  }
+
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    position: relative;
+  }
+  .flame-svg { width: 100%; height: 100%; }
+
+  h1 {
+    font-family: var(--head);
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  h1 span { color: var(--danger); }
+
+  .header-right {
+    display: flex; align-items: center; gap: 24px;
+  }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--head); font-weight: 600;
+    font-size: 13px; letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+    transition: all 0.3s;
+  }
+  .status-pill.running  { color: var(--safe);   border-color: var(--safe); }
+  .status-pill.stopped  { color: var(--dim);    border-color: var(--dim); }
+  .status-pill.error    { color: var(--danger); border-color: var(--danger); }
+  .status-pill.starting { color: var(--warn);   border-color: var(--warn); }
+
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor;
+    animation: pulse-dot 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.6); }
+  }
+
+  /* ── MAIN ALERT BANNER ── */
+  #alert-banner {
+    width: 100%;
+    padding: 0;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease, padding 0.4s ease;
+    background: var(--danger);
+    position: relative;
+  }
+  #alert-banner.show {
+    max-height: 90px;
+    padding: 14px 28px;
+  }
+  #alert-banner.smoke-only {
+    background: var(--smoke);
+  }
+
+  .banner-inner {
+    display: flex; align-items: center; gap: 20px;
+  }
+  .banner-icon { font-size: 32px; animation: shake 0.4s infinite; }
+  @keyframes shake {
+    0%,100% { transform: rotate(-5deg); }
+    50%      { transform: rotate(5deg); }
+  }
+  .banner-text h2 {
+    font-family: var(--head); font-weight: 800;
+    font-size: 20px; letter-spacing: 3px;
+    text-transform: uppercase; color: #fff;
+  }
+  .banner-text p { color: rgba(255,255,255,0.85); font-size: 12px; margin-top: 2px; }
+
+  /* ── GRID LAYOUT ── */
+  .grid {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    grid-template-rows: 1fr auto;
+    gap: 1px;
+    background: var(--border);
+    height: calc(100vh - 62px);
+    overflow: hidden;
+  }
+
+  .panel {
+    background: var(--panel);
+    padding: 24px;
+  }
+
+  /* ── STATUS PANEL (left) ── */
+  .side-panel {
+    grid-row: 1 / 3;
+    display: flex; flex-direction: column; gap: 20px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .section-label {
+    font-family: var(--head); font-weight: 600;
+    font-size: 11px; letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Big detection indicator */
+  .detect-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px;
+    text-align: center;
+    transition: all 0.4s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .detect-card.alert {
+    border-color: var(--danger);
+    box-shadow: 0 0 30px rgba(255,45,45,0.25), inset 0 0 60px rgba(255,45,45,0.05);
+    animation: card-pulse 1s ease-in-out infinite;
+  }
+  .detect-card.smoke {
+    border-color: var(--smoke);
+    box-shadow: 0 0 30px rgba(136,153,187,0.25);
+  }
+  @keyframes card-pulse {
+    0%,100% { box-shadow: 0 0 30px rgba(255,45,45,0.25), inset 0 0 60px rgba(255,45,45,0.05); }
+    50%      { box-shadow: 0 0 60px rgba(255,45,45,0.5),  inset 0 0 60px rgba(255,45,45,0.1); }
+  }
+
+  .detect-status {
+    font-family: var(--head); font-weight: 800;
+    font-size: 36px; letter-spacing: 4px;
+    text-transform: uppercase;
+    transition: color 0.3s;
+  }
+  .detect-status.safe   { color: var(--safe); }
+  .detect-status.danger { color: var(--danger); }
+  .detect-status.smoke  { color: var(--smoke); }
+
+  .detect-type {
+    font-family: var(--head); font-size: 14px; font-weight: 600;
+    letter-spacing: 2px; text-transform: uppercase;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+
+  .detect-desc {
+    font-size: 11px; color: var(--text);
+    margin-top: 10px; line-height: 1.6;
+    min-height: 36px;
+  }
+
+  /* Confidence bar */
+  .conf-row {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 6px;
+    font-size: 11px;
+  }
+  .conf-label { color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+  .conf-value { color: var(--text); font-weight: bold; }
+  .conf-bar-bg {
+    height: 4px; background: var(--border);
+    border-radius: 2px; overflow: hidden;
+  }
+  .conf-bar-fill {
+    height: 100%; border-radius: 2px;
+    background: var(--safe);
+    transition: width 0.5s ease, background 0.3s;
+  }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .stat-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 12px;
+  }
+  .stat-val {
+    font-family: var(--head); font-weight: 800;
+    font-size: 24px; color: #fff;
+    letter-spacing: 1px;
+  }
+  .stat-lbl {
+    font-size: 10px; color: var(--dim);
+    letter-spacing: 2px; text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* Alert history */
+  .alert-log {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 240px;
+  }
+  .alert-log::-webkit-scrollbar { width: 3px; }
+  .alert-log::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .log-entry {
+    display: flex; gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+  .log-time { color: var(--dim); white-space: nowrap; }
+  .log-badge {
+    font-family: var(--head); font-weight: 600;
+    font-size: 10px; letter-spacing: 1px;
+    padding: 1px 6px; border-radius: 2px;
+    white-space: nowrap; align-self: center;
+  }
+  .log-badge.fire  { background: rgba(255,45,45,0.2);  color: var(--danger); }
+  .log-badge.smoke { background: rgba(136,153,187,0.2); color: var(--smoke); }
+  .log-badge.both  { background: rgba(255,170,0,0.2);  color: var(--warn); }
+  .log-msg { color: var(--text); line-height: 1.4; }
+
+  /* ── MAIN VIDEO PANEL ── */
+  .video-panel {
+    position: relative;
+    background: #000;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    height: 100%;
+  }
+
+  /* Red alert overlay */
+  #alert-overlay {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 10;
+  }
+  #alert-overlay.show { opacity: 1; animation: overlay-flicker 1s infinite; }
+  @keyframes overlay-flicker {
+    0%,100% { opacity: 0.6; }
+    50%      { opacity: 0.15; }
+  }
+
+  /* Frame border glow */
+  .video-panel::after {
+    content: '';
+    position: absolute; inset: 0;
+    pointer-events: none;
+    border: 3px solid transparent;
+    transition: border-color 0.3s, box-shadow 0.3s;
+    z-index: 11;
+  }
+  .video-panel.alert::after {
+    border-color: var(--danger);
+    box-shadow: inset 0 0 40px rgba(255,45,45,0.3), 0 0 40px rgba(255,45,45,0.4);
+    animation: border-flash 0.8s infinite;
+  }
+  .video-panel.smoke-alert::after {
+    border-color: var(--smoke);
+    box-shadow: inset 0 0 40px rgba(136,153,187,0.2);
+  }
+  @keyframes border-flash {
+    0%,100% { box-shadow: inset 0 0 40px rgba(255,45,45,0.3), 0 0 40px rgba(255,45,45,0.4); }
+    50%      { box-shadow: inset 0 0 80px rgba(255,45,45,0.5), 0 0 80px rgba(255,45,45,0.6); }
+  }
+
+  /* Placeholder when no feed */
+  .no-feed {
+    text-align: center; color: var(--dim);
+    font-family: var(--head); font-size: 14px;
+    letter-spacing: 2px;
+  }
+  .no-feed-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.3; }
+
+  /* Corner HUD labels */
+  .hud {
+    position: absolute; top: 14px; left: 14px;
+    display: flex; flex-direction: column; gap: 4px;
+    z-index: 12; pointer-events: none;
+  }
+  .hud-line {
+    font-size: 10px; letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(200,216,240,0.6);
+    text-shadow: 0 0 6px rgba(0,0,0,0.8);
+  }
+  .hud-line span { color: #fff; }
+
+  .hud-br {
+    position: absolute; bottom: 14px; right: 14px;
+    z-index: 12; pointer-events: none; text-align: right;
+  }
+
+  /* Alert text overlay on video */
+  .video-alert-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--head); font-weight: 800;
+    font-size: clamp(28px, 5vw, 56px);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 0 20px var(--danger), 0 0 60px var(--danger);
+    pointer-events: none;
+    z-index: 13;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+  }
+  .video-alert-text.show { opacity: 1; animation: text-pulse 1s ease-in-out infinite; }
+  @keyframes text-pulse {
+    0%,100% { text-shadow: 0 0 20px var(--danger), 0 0 60px var(--danger); }
+    50%      { text-shadow: 0 0 40px var(--danger), 0 0 120px var(--danger), 0 0 200px var(--danger); }
+  }
+
+  /* ── METRICS PANEL (bottom right) ── */
+  .metrics-panel {
+    display: flex; gap: 0;
+  }
+  .metric-col {
+    flex: 1;
+    padding: 20px;
+    border-right: 1px solid var(--border);
+  }
+  .metric-col:last-child { border-right: none; }
+  .metric-val {
+    font-family: var(--head); font-weight: 800;
+    font-size: 32px; color: #fff;
+  }
+  .metric-unit { font-size: 14px; color: var(--dim); margin-left: 4px; }
+  .metric-lbl {
+    font-size: 10px; color: var(--dim);
+    letter-spacing: 2px; text-transform: uppercase;
+    margin-top: 4px;
+  }
+
+  /* Latency bar */
+  .lat-bar-bg {
+    height: 3px; background: var(--border); margin-top: 8px;
+    border-radius: 2px; overflow: hidden;
+  }
+  .lat-bar-fill {
+    height: 100%; border-radius: 2px;
+    background: var(--safe);
+    transition: width 0.5s, background 0.3s;
+  }
+
+  /* ── POPUP NOTIFICATION ── */
+  #popup {
+    position: fixed; top: 80px; right: 20px;
+    width: 300px;
+    background: var(--panel);
+    border: 1px solid var(--danger);
+    border-left: 4px solid var(--danger);
+    border-radius: 3px;
+    padding: 16px 18px;
+    z-index: 9998;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    transform: translateX(340px);
+    transition: transform 0.4s cubic-bezier(.175,.885,.32,1.1);
+  }
+  #popup.show { transform: translateX(0); }
+  #popup.smoke-popup { border-color: var(--smoke); }
+  .popup-title {
+    font-family: var(--head); font-weight: 800;
+    font-size: 16px; letter-spacing: 2px;
+    color: var(--danger); text-transform: uppercase;
+  }
+  #popup.smoke-popup .popup-title { color: var(--smoke); }
+  .popup-body { font-size: 11px; color: var(--text); margin-top: 6px; line-height: 1.6; }
+  .popup-time { font-size: 10px; color: var(--dim); margin-top: 8px; }
+  .popup-close {
+    position: absolute; top: 10px; right: 12px;
+    background: none; border: none; color: var(--dim);
+    cursor: pointer; font-size: 16px;
+    transition: color 0.2s;
+  }
+  .popup-close:hover { color: #fff; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+    .side-panel { grid-row: auto; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <svg class="flame-svg" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M18 3C18 3 24 10 24 16C24 19.3 21.3 22 18 22C14.7 22 12 19.3 12 16C12 13 14 10 14 10C14 10 10 14 10 19C10 25.1 13.4 30 18 33C22.6 30 26 25.1 26 19C26 11 18 3 18 3Z" fill="#ff4400" opacity="0.9"/>
+        <path d="M18 14C18 14 21 17.5 21 20.5C21 22.4 19.7 24 18 24C16.3 24 15 22.4 15 20.5C15 18.5 17 16 17 16" fill="#ffaa00"/>
+        <path d="M18 20C18 20 19.5 21.2 19.5 22.5C19.5 23.3 18.8 24 18 24C17.2 24 16.5 23.3 16.5 22.5C16.5 21.5 18 20 18 20Z" fill="#fff" opacity="0.8"/>
+      </svg>
+    </div>
+    <h1>FIRE &amp; <span>SMOKE</span> DETECTION</h1>
+  </div>
+  <div class="header-right">
+    <div style="font-size:11px; color:var(--dim); letter-spacing:1px;">
+      SOURCE: <span id="hdr-source" style="color:var(--text)">—</span>
+    </div>
+    <div class="status-pill starting" id="status-pill">
+      <div class="dot"></div>
+      <span id="status-text">STARTING</span>
+    </div>
+  </div>
+</header>
+
+<!-- ALERT BANNER -->
+<div id="alert-banner">
+  <div class="banner-inner">
+    <div class="banner-icon" id="banner-icon">🔥</div>
+    <div class="banner-text">
+      <h2 id="banner-title">FIRE DETECTED</h2>
+      <p id="banner-desc">Analysing scene...</p>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="grid">
+
+  <!-- LEFT SIDE PANEL -->
+  <div class="panel side-panel">
+
+    <!-- Detection Card -->
+    <div>
+      <div class="section-label">Detection Status</div>
+      <div class="detect-card" id="detect-card">
+        <div class="detect-status safe" id="detect-status">CLEAR</div>
+        <div class="detect-type" id="detect-type">— NO HAZARD —</div>
+        <div class="detect-desc" id="detect-desc">System initialising, please wait...</div>
+      </div>
+    </div>
+
+    <!-- Confidence -->
+    <div>
+      <div class="section-label">Confidence Level</div>
+      <div class="conf-row">
+        <span class="conf-label">Confidence</span>
+        <span class="conf-value" id="conf-label">—</span>
+      </div>
+      <div class="conf-bar-bg">
+        <div class="conf-bar-fill" id="conf-bar" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div>
+      <div class="section-label">Session Statistics</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-val" id="stat-frames">0</div>
+          <div class="stat-lbl">Frames</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="stat-alerts" style="color:var(--danger)">0</div>
+          <div class="stat-lbl">Alerts</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="stat-latency">—</div>
+          <div class="stat-lbl">Last ms</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="stat-last">—</div>
+          <div class="stat-lbl">Last Alert</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <div class="section-label">Alert History</div>
+      <div class="alert-log" id="alert-log">
+        <div style="color:var(--dim); font-size:11px; padding:8px 0;">No alerts yet.</div>
+      </div>
+    </div>
+
+    <!-- Log file path -->
+    <div style="font-size:10px; color:var(--dim); letter-spacing:1px; border-top:1px solid var(--border); padding-top:12px;">
+      LOG: <span id="log-path" style="color:var(--text)">—</span>
+    </div>
+
+  </div>
+
+  <!-- VIDEO PANEL -->
+  <div class="video-panel" id="video-panel">
+    <!-- Red overlay -->
+    <svg id="alert-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="rg" cx="50%" cy="50%">
+          <stop offset="0%" stop-color="rgba(255,45,45,0)"/>
+          <stop offset="100%" stop-color="rgba(255,45,45,0.6)"/>
+        </radialGradient>
+      </defs>
+      <rect width="100" height="100" fill="url(#rg)"/>
+    </svg>
+
+    <!-- HUD top-left -->
+    <div class="hud">
+      <div class="hud-line">MODEL: <span>gemma3:4b</span></div>
+      <div class="hud-line">BACKEND: <span>Ollama</span></div>
+      <div class="hud-line" id="hud-time">TIME: <span>—</span></div>
+    </div>
+    <!-- HUD bottom-right -->
+    <div class="hud-br">
+      <div class="hud-line" style="font-size:10px; color:rgba(200,216,240,0.4);">JETSON ORIN NX</div>
+    </div>
+
+    <!-- Big alert text over video -->
+    <div class="video-alert-text" id="video-alert-text">⚠ FIRE DETECTED</div>
+
+    <!-- MJPEG live stream -->
+    <img id="mjpeg-stream"
+         alt="Live Feed"
+         style="width:100%; height:100%; object-fit:contain; display:block; position:absolute; top:0; left:0; z-index:1;"
+    />
+
+    <!-- Overlay: connecting / error -->
+    <div id="no-feed" style="
+      position:absolute; inset:0; z-index:2;
+      display:flex; flex-direction:column;
+      align-items:center; justify-content:center;
+      background:rgba(8,10,15,0.85);
+      font-family:'Barlow Condensed',sans-serif;
+      letter-spacing:2px; text-align:center;
+    ">
+      <div style="font-size:48px; margin-bottom:12px; opacity:0.4;">📡</div>
+      <div id="no-feed-title" style="font-size:16px; color:#c8d8f0;">CONNECTING TO STREAM...</div>
+      <div id="no-feed-sub" style="font-size:11px; color:#3a4560; margin-top:8px;">
+        http://localhost:8080/stream
+      </div>
+      <div id="retry-count" style="font-size:10px; color:#3a4560; margin-top:6px;"></div>
+    </div>
+  </div>
+
+  <!-- METRICS BAR -->
+  <div class="panel metrics-panel" style="padding:0;">
+    <div class="metric-col">
+      <div>
+        <span class="metric-val" id="met-latency">—</span>
+        <span class="metric-unit">ms</span>
+      </div>
+      <div class="metric-lbl">Inference Latency</div>
+      <div class="lat-bar-bg">
+        <div class="lat-bar-fill" id="lat-bar" style="width:0%"></div>
+      </div>
+    </div>
+    <div class="metric-col">
+      <div>
+        <span class="metric-val" id="met-frames">0</span>
+      </div>
+      <div class="metric-lbl">Total Frames</div>
+    </div>
+    <div class="metric-col">
+      <div>
+        <span class="metric-val" id="met-alerts" style="color:var(--danger)">0</span>
+      </div>
+      <div class="metric-lbl">Total Alerts</div>
+    </div>
+    <div class="metric-col">
+      <div>
+        <span class="metric-val" id="met-source" style="font-size:18px;">—</span>
+      </div>
+      <div class="metric-lbl">Input Source</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- POPUP NOTIFICATION -->
+<div id="popup">
+  <button class="popup-close" onclick="closePopup()">✕</button>
+  <div class="popup-title" id="popup-title">🔥 FIRE DETECTED</div>
+  <div class="popup-body" id="popup-body">Hazard identified by AI analysis.</div>
+  <div class="popup-time" id="popup-time">—</div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let lastAlert = false;
+let popupTimer = null;
+let alertLog   = [];
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function confWidth(level) {
+  return level === 'high' ? '90%' : level === 'medium' ? '55%' : '25%';
+}
+function confColor(level, isAlert) {
+  if (!isAlert) return 'var(--safe)';
+  return level === 'high' ? 'var(--danger)' : level === 'medium' ? 'var(--warn)' : 'var(--smoke)';
+}
+
+function clock() {
+  return new Date().toLocaleTimeString('en-GB', {hour12: false});
+}
+
+// ── Popup ──────────────────────────────────────────────────────────────────
+function showPopup(type, description, time) {
+  const popup = document.getElementById('popup');
+  const isSmoke = type === 'smoke';
+  popup.className = isSmoke ? 'show smoke-popup' : 'show';
+  document.getElementById('popup-title').textContent =
+    type === 'fire' ? '🔥 FIRE DETECTED' :
+    type === 'smoke' ? '💨 SMOKE DETECTED' : '🔥💨 FIRE & SMOKE';
+  document.getElementById('popup-body').textContent = description;
+  document.getElementById('popup-time').textContent = 'Detected at ' + time;
+  clearTimeout(popupTimer);
+  popupTimer = setTimeout(closePopup, 8000);
+}
+function closePopup() {
+  document.getElementById('popup').className = '';
+}
+
+// ── Add to log ─────────────────────────────────────────────────────────────
+function addLogEntry(type, description, time) {
+  alertLog.unshift({type, description, time});
+  if (alertLog.length > 50) alertLog.pop();
+
+  const el  = document.getElementById('alert-log');
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `
+    <span class="log-time">${time}</span>
+    <span class="log-badge ${type}">${type.toUpperCase()}</span>
+    <span class="log-msg">${description}</span>`;
+  // Clear placeholder
+  if (el.children.length === 1 && el.children[0].tagName !== 'DIV'.toUpperCase() || el.innerHTML.includes('No alerts')) {
+    el.innerHTML = '';
+  }
+  el.prepend(div);
+}
+
+// ── Main update ────────────────────────────────────────────────────────────
+function update(s) {
+  // HUD clock
+  document.getElementById('hud-time').innerHTML = `TIME: <span>${clock()}</span>`;
+
+  // Source
+  document.getElementById('hdr-source').textContent = s.source;
+  document.getElementById('met-source').textContent = s.source;
+  document.getElementById('log-path').textContent   = s.log_path;
+
+  // Status pill
+  const pill   = document.getElementById('status-pill');
+  const sText  = document.getElementById('status-text');
+  pill.className = 'status-pill ' + s.status;
+  sText.textContent = s.status.toUpperCase();
+
+  // Frames & alerts
+  document.getElementById('stat-frames').textContent  = s.frame_count.toLocaleString();
+  document.getElementById('stat-alerts').textContent  = s.alert_count;
+  document.getElementById('stat-last').textContent    = s.last_alert || '—';
+  document.getElementById('met-frames').textContent   = s.frame_count.toLocaleString();
+  document.getElementById('met-alerts').textContent   = s.alert_count;
+
+  // Latency
+  if (s.latency_ms) {
+    const ms = s.latency_ms;
+    document.getElementById('stat-latency').textContent  = ms + 'ms';
+    document.getElementById('met-latency').textContent   = ms;
+    // bar: 0ms=0%, 10000ms=100%
+    const pct = Math.min(ms / 10000 * 100, 100);
+    const col = ms < 3000 ? 'var(--safe)' : ms < 7000 ? 'var(--warn)' : 'var(--danger)';
+    document.getElementById('lat-bar').style.width      = pct + '%';
+    document.getElementById('lat-bar').style.background = col;
+  }
+
+  // Detection card
+  const card   = document.getElementById('detect-card');
+  const dStat  = document.getElementById('detect-status');
+  const dType  = document.getElementById('detect-type');
+  const dDesc  = document.getElementById('detect-desc');
+  const banner = document.getElementById('alert-banner');
+  const vPanel = document.getElementById('video-panel');
+  const overlay = document.getElementById('alert-overlay');
+  const alertTxt = document.getElementById('video-alert-text');
+
+  dDesc.textContent = s.description;
+
+  // Confidence bar
+  document.getElementById('conf-label').textContent = s.confidence ? s.confidence.toUpperCase() : '—';
+  document.getElementById('conf-bar').style.width      = confWidth(s.confidence);
+  document.getElementById('conf-bar').style.background = confColor(s.confidence, s.alert);
+
+  if (s.alert) {
+    const t = s.type; // fire | smoke | both
+    const isSmoke = t === 'smoke';
+    const isBoth  = t === 'both';
+
+    // Card
+    card.className = isSmoke ? 'detect-card smoke' : 'detect-card alert';
+    dStat.className = isSmoke ? 'detect-status smoke' : 'detect-status danger';
+    dStat.textContent = t === 'both' ? 'DANGER' : t.toUpperCase();
+    dType.textContent  = '— ' + (isBoth ? 'FIRE & SMOKE' : t.toUpperCase()) + ' —';
+    dType.style.color  = isSmoke ? 'var(--smoke)' : 'var(--danger)';
+
+    // Banner
+    banner.className = isSmoke ? 'show smoke-only' : 'show';
+    document.getElementById('banner-icon').textContent  = isSmoke ? '💨' : isBoth ? '🔥💨' : '🔥';
+    document.getElementById('banner-title').textContent =
+      isSmoke ? 'SMOKE DETECTED' : isBoth ? 'FIRE & SMOKE DETECTED' : 'FIRE DETECTED';
+    document.getElementById('banner-desc').textContent  = s.description;
+
+    // Video overlay & border
+    overlay.className  = 'show';
+    vPanel.className   = isSmoke ? 'video-panel smoke-alert' : 'video-panel alert';
+    alertTxt.className = 'video-alert-text show';
+    alertTxt.textContent = isSmoke ? '⚠ SMOKE DETECTED' : isBoth ? '⚠ FIRE & SMOKE' : '⚠ FIRE DETECTED';
+
+    // Popup (only on new alert)
+    if (!lastAlert) {
+      const t2 = s.last_alert || clock();
+      showPopup(t, s.description, t2);
+      addLogEntry(t, s.description, t2);
+    }
+
+  } else {
+    card.className     = 'detect-card';
+    dStat.className    = 'detect-status safe';
+    dStat.textContent  = 'CLEAR';
+    dType.textContent  = '— NO HAZARD —';
+    dType.style.color  = 'var(--dim)';
+    banner.className   = '';
+    overlay.className  = '';
+    vPanel.className   = 'video-panel';
+    alertTxt.className = 'video-alert-text';
+  }
+
+  lastAlert = s.alert;
+}
+
+// ── MJPEG Stream — auto-retry dengan backoff ──────────────────────────────
+let retryCount = 0;
+let retryTimer = null;
+
+function connectStream() {
+  const img     = document.getElementById('mjpeg-stream');
+  const overlay = document.getElementById('no-feed');
+  const title   = document.getElementById('no-feed-title');
+  const retrEl  = document.getElementById('retry-count');
+
+  // Test dulu sama ada /stream endpoint boleh dicapai
+  fetch('/stream', { method: 'HEAD' })
+    .then(r => {
+      if (r.ok || r.status === 200) {
+        // Stream ada — sambungkan img
+        img.onload = () => {
+          overlay.style.display = 'none';
+          retryCount = 0;
+        };
+        img.onerror = () => {
+          overlay.style.display = 'flex';
+          title.textContent = 'STREAM DISCONNECTED';
+          scheduleRetry();
+        };
+        // Tambah timestamp untuk force reload (elak cache)
+        img.src = '/stream?' + Date.now();
+        // Beri masa 3 saat untuk load pertama
+        setTimeout(() => {
+          if (overlay.style.display !== 'none') {
+            img.src = '/stream?' + Date.now();
+          }
+        }, 3000);
+      } else {
+        scheduleRetry();
+      }
+    })
+    .catch(() => scheduleRetry());
+}
+
+function scheduleRetry() {
+  retryCount++;
+  const delay = Math.min(2000 * retryCount, 10000); // max 10 saat
+  document.getElementById('no-feed-title').textContent = 'CONNECTING TO STREAM...';
+  document.getElementById('retry-count').textContent   = `Retry ${retryCount} — dalam ${delay/1000}s`;
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(connectStream, delay);
+}
+
+// Mulakan connection
+connectStream();
+// Juga cuba semula setiap 15 saat jika stream putus
+setInterval(() => {
+  const img = document.getElementById('mjpeg-stream');
+  if (!img.complete || img.naturalWidth === 0) {
+    connectStream();
+  }
+}, 15000);
+
+// ── Poll API ────────────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const r = await fetch('/api/state');
+    if (r.ok) update(await r.json());
+  } catch(e) { /* backend not ready yet */ }
+  setTimeout(poll, 1500);
+}
+
+poll();
+</script>
+</body>
+</html>
