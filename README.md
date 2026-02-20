@@ -46,9 +46,7 @@ Powered by [Ollama](https://ollama.com) and `gemma3:4b`, this system continuousl
 fire_smoke_detector/
 ├── detector.py        — Main backend: VLM inference, MJPEG stream server, logging
 ├── index.html         — Web dashboard UI
-├── run.sh             — One-command setup and launch script
-├── debug_camera.py    — Standalone camera diagnostic tool
-├── requirements.txt   — Python dependencies
+├── run.sh             — One-command setup and launch scrip
 └── README.md
 ```
 
